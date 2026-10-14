@@ -189,6 +189,7 @@ export default function ReportSensorDataPage() {
     if (data.length === 0) return;
 
     const headers = [
+      "Waktu Sensor",
       "Waktu Terima",
       "Kode Modul",
       "Nama Modul",
@@ -203,6 +204,7 @@ export default function ReportSensorDataPage() {
 
     const rows = data.map((item) => [
       `"${new Date(item.waktuRekam).toLocaleString("id-ID")}"`,
+      `"${new Date(item.waktuTerima).toLocaleString("id-ID")}"`,
       `"${item.modulKodeIot || "-"}"`,
       `"${item.modulNama || "-"}"`,
       `"${item.kodeZona || "-"}"`,
@@ -537,6 +539,7 @@ export default function ReportSensorDataPage() {
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[11px]">
                 <th className="py-3.5 px-4">Waktu Terima</th>
+                <th className="py-3.5 px-4">Waktu Sensor</th>
                 <th className="py-3.5 px-4">Modul</th>
                 <th className="py-3.5 px-4">Zona</th>
                 <th className="py-3.5 px-4 text-right">Voltase</th>
@@ -595,15 +598,27 @@ export default function ReportSensorDataPage() {
                 </tr>
               ) : (
                 data.map((item) => {
-                  const badge =
-                    statusBadges[item.statusTercatat] || statusBadges.AMAN;
-                  const dateObj = new Date(item.waktuRekam);
-                  const formattedDate = dateObj.toLocaleDateString("id-ID", {
+                  const badge = statusBadges[item.statusTercatat] || statusBadges.AMAN;
+                  
+                  const dateObjTerima = new Date(item.waktuTerima);
+                  const formattedDateTerima = dateObjTerima.toLocaleDateString("id-ID", {
                     day: "2-digit",
                     month: "short",
                     year: "numeric",
                   });
-                  const formattedTime = dateObj.toLocaleTimeString("id-ID", {
+                  const formattedTimeTerima = dateObjTerima.toLocaleTimeString("id-ID", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  });
+
+                  const dateObjSensor = new Date(item.waktuRekam);
+                  const formattedDateSensor = dateObjSensor.toLocaleDateString("id-ID", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  });
+                  const formattedTimeSensor = dateObjSensor.toLocaleTimeString("id-ID", {
                     hour: "2-digit",
                     minute: "2-digit",
                     second: "2-digit",
@@ -632,8 +647,14 @@ export default function ReportSensorDataPage() {
                     >
                       {/* Waktu Terima */}
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="font-semibold text-slate-800">{formattedDate}</div>
-                        <div className="text-[11px] text-slate-400 font-mono">{formattedTime} WIB</div>
+                        <div className="font-semibold text-slate-800">{formattedDateTerima}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">{formattedTimeTerima} WIB</div>
+                      </td>
+
+                      {/* Waktu Sensor */}
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="font-semibold text-slate-800">{formattedDateSensor}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">{formattedTimeSensor} WIB</div>
                       </td>
 
                       {/* Modul (Kode dan Nama) */}

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
-import Topbar from "@/components/dashboard/Topbar";
 
 export default function DashboardLayout({
   children,
@@ -18,7 +17,6 @@ export default function DashboardLayout({
         className="flex flex-col flex-1 overflow-hidden transition-all duration-300"
         style={{ marginLeft: sidebarOpen ? "260px" : "72px" }}
       >
-        <Topbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
         <main className="flex-1 overflow-y-auto p-6">
           {children}
         </main>

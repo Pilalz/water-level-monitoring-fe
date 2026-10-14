@@ -1,5 +1,6 @@
 // frontend/lib/api.ts
 // Best-practice API client & Type definitions for Water Level Monitoring
+import Cookies from "js-cookie";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -19,6 +20,7 @@ export interface Modul {
   status: ModulStatus;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
   zonas?: Zona[];
   totalZonas?: number;
   onlineZonas?: number;
@@ -44,6 +46,7 @@ export interface Zona {
   status: ZonaStatus;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
   modul?: {
     id: string;
     kodeIot: string;
@@ -59,19 +62,80 @@ export interface Zona {
     voltaseRaw: number | null;
     statusTercatat: WaterLevelStatus;
     waktuRekam: string;
+    waktuTerima: string;
   } | null;
   unresolvedAlertsCount?: number;
 }
 
+export interface ActivityLog {
+  id: string;
+  userId: string | null;
+  username: string | null;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  details: string | null;
+  createdAt: string;
+}
+
 export type DeviceConnectionStatus = "ONLINE" | "DELAYED" | "OFFLINE";
 
-export function getDeviceConnectionStatus(waktuRekam?: string | Date | null): {
+/**
+ * Format durasi elapsed time menjadi label yang human-readable,
+ * dengan satuan yang menyesuaikan: detik → menit → jam → hari → minggu → bulan → tahun
+ */
+function formatElapsedDuration(diffSeconds: number): string {
+  if (diffSeconds < 60) {
+    return `${diffSeconds} detik`;
+  }
+
+  const minutes = Math.floor(diffSeconds / 60);
+  const seconds = diffSeconds % 60;
+
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes} mnt ${seconds} dtk` : `${minutes} mnt`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+
+  if (hours < 24) {
+    return remMinutes > 0 ? `${hours} jam ${remMinutes} mnt` : `${hours} jam`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+
+  if (days < 7) {
+    return remHours > 0 ? `${days} hari ${remHours} jam` : `${days} hari`;
+  }
+
+  const weeks = Math.floor(days / 7);
+  const remDays = days % 7;
+
+  if (weeks < 4) {
+    return remDays > 0 ? `${weeks} minggu ${remDays} hari` : `${weeks} minggu`;
+  }
+
+  const months = Math.floor(days / 30);
+  const remWeeks = Math.floor((days % 30) / 7);
+
+  if (months < 12) {
+    return remWeeks > 0 ? `${months} bulan ${remWeeks} minggu` : `${months} bulan`;
+  }
+
+  const years = Math.floor(days / 365);
+  const remMonths = Math.floor((days % 365) / 30);
+  return remMonths > 0 ? `${years} tahun ${remMonths} bulan` : `${years} tahun`;
+}
+
+export function getDeviceConnectionStatus(waktuTerima?: string | Date | null): {
   status: DeviceConnectionStatus;
   label: string;
   diffSeconds: number | null;
   badge: { bg: string; text: string; dot: string; border: string };
 } {
-  if (!waktuRekam) {
+  if (!waktuTerima) {
     return {
       status: "OFFLINE",
       label: "Offline",
@@ -86,13 +150,13 @@ export function getDeviceConnectionStatus(waktuRekam?: string | Date | null): {
   }
 
   const now = Date.now();
-  const recorded = new Date(waktuRekam).getTime();
+  const recorded = new Date(waktuTerima).getTime();
   const diffSeconds = Math.max(0, Math.floor((now - recorded) / 1000));
 
   if (diffSeconds <= 120) {
     return {
       status: "ONLINE",
-      label: `Online (${diffSeconds}s)`,
+      label: `Online · ${formatElapsedDuration(diffSeconds)} lalu`,
       diffSeconds,
       badge: {
         bg: "rgba(16, 185, 129, 0.12)",
@@ -104,11 +168,9 @@ export function getDeviceConnectionStatus(waktuRekam?: string | Date | null): {
   }
 
   if (diffSeconds <= 500) {
-    const min = Math.floor(diffSeconds / 60);
-    const sec = diffSeconds % 60;
     return {
       status: "DELAYED",
-      label: `Delayed (${min > 0 ? `${min}m ` : ""}${sec}s)`,
+      label: `Delayed · ${formatElapsedDuration(diffSeconds)} lalu`,
       diffSeconds,
       badge: {
         bg: "rgba(245, 158, 11, 0.12)",
@@ -119,10 +181,9 @@ export function getDeviceConnectionStatus(waktuRekam?: string | Date | null): {
     };
   }
 
-  const min = Math.floor(diffSeconds / 60);
   return {
     status: "OFFLINE",
-    label: `Offline (${min}m lalu)`,
+    label: `Offline · ${formatElapsedDuration(diffSeconds)} lalu`,
     diffSeconds,
     badge: {
       bg: "rgba(239, 68, 68, 0.12)",
@@ -148,6 +209,7 @@ export interface SensorDataReading {
   voltaseRaw: number | null;
   statusTercatat: WaterLevelStatus;
   waktuRekam: string;
+  waktuTerima: string;
 }
 
 export interface LatestZonaData {
@@ -167,6 +229,7 @@ export interface LatestZonaData {
     voltaseRaw: number | null;
     statusTercatat: WaterLevelStatus;
     waktuRekam: string;
+    waktuTerima: string;
   } | null;
 }
 
@@ -206,9 +269,12 @@ export interface ApiResponse<T> {
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   
-  const headers = {
+  const token = typeof window !== "undefined" ? Cookies.get("token") : null;
+
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...options.headers,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string> || {}),
   };
 
   try {
@@ -236,10 +302,11 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 // ─── Modul API ────────────────────────────────────────────────────────────────
 
 export const modulApi = {
-  getAll: (params?: { status?: string; includeZonas?: boolean }) => {
+  getAll: (params?: { status?: string; includeZonas?: boolean; includeDeleted?: boolean }) => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.append("status", params.status);
     if (params?.includeZonas) searchParams.append("includeZonas", "true");
+    if (params?.includeDeleted) searchParams.append("includeDeleted", "true");
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     return apiRequest<ApiResponse<Modul[]>>(`/modul${query}`);
   },
@@ -267,15 +334,22 @@ export const modulApi = {
       method: "DELETE",
     });
   },
+
+  restore: (id: string) => {
+    return apiRequest<ApiResponse<Modul>>(`/modul/${id}/restore`, {
+      method: "PATCH",
+    });
+  },
 };
 
 // ─── Zona API ─────────────────────────────────────────────────────────────────
 
 export const zonaApi = {
-  getAll: (params?: { idModul?: string; status?: string }) => {
+  getAll: (params?: { idModul?: string; status?: string; includeDeleted?: boolean }) => {
     const searchParams = new URLSearchParams();
     if (params?.idModul) searchParams.append("idModul", params.idModul);
     if (params?.status) searchParams.append("status", params.status);
+    if (params?.includeDeleted) searchParams.append("includeDeleted", "true");
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     return apiRequest<ApiResponse<Zona[]>>(`/zona${query}`);
   },
@@ -327,6 +401,12 @@ export const zonaApi = {
   delete: (id: string) => {
     return apiRequest<ApiResponse<null>>(`/zona/${id}`, {
       method: "DELETE",
+    });
+  },
+
+  restore: (id: string) => {
+    return apiRequest<ApiResponse<Zona>>(`/zona/${id}/restore`, {
+      method: "PATCH",
     });
   },
 };
@@ -391,5 +471,115 @@ export const alertApi = {
     return apiRequest<ApiResponse<{ id: string; isResolved: boolean }>>(`/alerts/${id}/resolve`, {
       method: "PATCH",
     });
+  },
+};
+
+// ─── Auth API ─────────────────────────────────────────────────────────────────
+
+export interface LoginResponse {
+  success: boolean;
+  token: string;
+  user: {
+    id: string;
+    username: string;
+    role: "ADMIN" | "OPERATOR" | "VIEWER";
+  };
+  message?: string;
+}
+
+export const authApi = {
+  login: (credentials: { username: string; password: string }) => {
+    return apiRequest<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(credentials),
+    });
+  },
+  register: (data: { username: string; password: string; role?: "ADMIN" | "OPERATOR" | "VIEWER" }) => {
+    return apiRequest<{ success: boolean; message: string; user: { id: string; username: string; role: string } }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+// ─── User API ─────────────────────────────────────────────────────────────────
+
+export interface User {
+  id: string;
+  username: string;
+  role: "ADMIN" | "OPERATOR" | "VIEWER";
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export const userApi = {
+  getAll: (params?: { includeDeleted?: boolean }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.includeDeleted) searchParams.append("includeDeleted", "true");
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return apiRequest<ApiResponse<User[]>>(`/users${query}`);
+  },
+
+  getById: (id: string) => {
+    return apiRequest<ApiResponse<User>>(`/users/${id}`);
+  },
+
+  create: (data: {
+    username: string;
+    password: string;
+    role: "ADMIN" | "OPERATOR" | "VIEWER";
+  }) => {
+    return apiRequest<ApiResponse<User>>("/users", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  update: (
+    id: string,
+    data: Partial<{
+      username: string;
+      password: string;
+      role: "ADMIN" | "OPERATOR" | "VIEWER";
+    }>
+  ) => {
+    return apiRequest<ApiResponse<User>>(`/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  delete: (id: string) => {
+    return apiRequest<ApiResponse<null>>(`/users/${id}`, {
+      method: "DELETE",
+    });
+  },
+
+  restore: (id: string) => {
+    return apiRequest<ApiResponse<User>>(`/users/${id}/restore`, {
+      method: "PATCH",
+    });
+  },
+};
+
+// ─── Activity Log API ─────────────────────────────────────────────────────────
+
+export const activityLogApi = {
+  getAll: (params?: {
+    entity?: string;
+    action?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.entity && params.entity !== "ALL") searchParams.append("entity", params.entity);
+    if (params?.action && params.action !== "ALL") searchParams.append("action", params.action);
+    if (params?.search) searchParams.append("search", params.search);
+    if (params?.page) searchParams.append("page", String(params.page));
+    if (params?.limit) searchParams.append("limit", String(params.limit));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return apiRequest<ApiResponse<ActivityLog[]>>(`/activity-logs${query}`);
   },
 };

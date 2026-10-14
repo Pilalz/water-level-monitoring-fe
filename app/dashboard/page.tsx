@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { modulApi, zonaApi, alertApi, Modul, Zona, AlertLog, AlertSummary, WaterLevelStatus, getDeviceConnectionStatus } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 const statusBadges: Record<WaterLevelStatus, { bg: string; text: string; dot: string }> = {
   AMAN: { bg: "rgba(16,185,129,0.1)", text: "#059669", dot: "#10b981" },
@@ -12,6 +13,7 @@ const statusBadges: Record<WaterLevelStatus, { bg: string; text: string; dot: st
 };
 
 export default function DashboardPage() {
+  const { canManage } = useAuth();
   const [moduls, setModuls] = useState<Modul[]>([]);
   const [zonas, setZonas] = useState<Zona[]>([]);
   const [alerts, setAlerts] = useState<AlertLog[]>([]);
@@ -87,7 +89,7 @@ export default function DashboardPage() {
     let offline = 0;
 
     zonas.forEach((z) => {
-      const conn = getDeviceConnectionStatus(z.latestReading?.waktuRekam);
+      const conn = getDeviceConnectionStatus(z.latestReading?.waktuTerima);
       if (conn.status === "ONLINE") online++;
       else if (conn.status === "DELAYED") delayed++;
       else offline++;
@@ -237,7 +239,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {zonas.map((zona) => {
               const reading = zona.latestReading;
-              const conn = getDeviceConnectionStatus(reading?.waktuRekam);
+              const conn = getDeviceConnectionStatus(reading?.waktuTerima);
               const currentLevel = reading ? Number(reading.ketinggianAir) : 0;
               const maxH = Number(zona.tinggiMaks) || 100;
               const pct = maxH > 0 ? Math.min(100, Math.max(0, (currentLevel / maxH) * 100)) : 0;
@@ -245,92 +247,170 @@ export default function DashboardPage() {
               const badge = statusBadges[st] || statusBadges.AMAN;
 
               const modulLabel = zona.modul?.kodeIot
-                ? `${zona.modul.kodeIot} - ${zona.modul.nama}`
+                ? `${zona.modul.kodeIot} — ${zona.modul.nama}`
                 : zona.modul?.nama || "Modul Gateway";
 
               return (
                 <div
                   key={zona.id}
-                  className="p-5 rounded-2xl border border-slate-200/90 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all duration-200 flex flex-col justify-between"
+                  className="rounded-2xl border border-slate-200/90 bg-white hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 flex flex-col overflow-hidden"
                 >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-slate-500 truncate max-w-[130px]" title={modulLabel}>
-                        {modulLabel}
+                  {/* ── HEADER: Identitas Zona + Status Air ─── */}
+                  <div className="px-4 pt-4 pb-3 flex items-start gap-3">
+                    {/* Kode + Nama Zona */}
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        {zona.kodeZona}
                       </span>
-                      <div className="flex items-center gap-1.5">
-                        {/* Status Koneksi Hardware/Payload */}
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
-                          style={{
-                            background: conn.badge.bg,
-                            color: conn.badge.text,
-                            border: `1px solid ${conn.badge.border}`,
-                          }}
-                          title={`Konektivitas Sensor: ${conn.status} (Transmisi terakhir: ${conn.diffSeconds !== null ? `${conn.diffSeconds}s lalu` : 'belum ada data'})`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              conn.status === "ONLINE" ? "animate-pulse" : ""
-                            }`}
-                            style={{ background: conn.badge.dot }}
-                          />
-                          {conn.label}
-                        </span>
+                      <h3
+                        className="font-bold text-slate-900 text-sm leading-snug mt-0.5 truncate"
+                        title={zona.namaZona}
+                      >
+                        {zona.namaZona}
+                      </h3>
+                      <p
+                        className="text-[11px] text-slate-400 font-medium mt-0.5 truncate"
+                        title={modulLabel}
+                      >
+                        📡 {modulLabel}
+                      </p>
+                    </div>
 
-                        {/* Status Level Air */}
+                    {/* Badge Status Level Air */}
+                    <span
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border mt-0.5"
+                      style={{
+                        background: badge.bg,
+                        color: badge.text,
+                        borderColor: badge.dot + "50",
+                      }}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          st === "KRITIS" || st === "BAHAYA" ? "animate-pulse" : ""
+                        }`}
+                        style={{ background: badge.dot }}
+                      />
+                      {st}
+                    </span>
+                  </div>
+
+                  {/* Colored accent line bawah header */}
+                  <div
+                    className="mx-4 h-px rounded-full"
+                    style={{
+                      background: `linear-gradient(90deg, ${badge.dot}70, ${badge.dot}10)`,
+                    }}
+                  />
+
+                  {/* ── BODY: Angka Level + Progress Bar ──────── */}
+                  <div className="px-4 py-4 flex-1 space-y-3">
+                    {/* Nilai level + persen */}
+                    <div className="flex items-end justify-between">
+                      <div className="flex items-baseline gap-1.5">
                         <span
-                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold"
-                          style={{ background: badge.bg, color: badge.text }}
+                          className="text-4xl font-black tabular-nums leading-none"
+                          style={{ color: reading ? badge.dot : "#94a3b8" }}
                         >
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: badge.dot }} />
-                          {st}
+                          {currentLevel.toFixed(1)}
                         </span>
+                        <span className="text-sm font-semibold text-slate-500 mb-0.5">
+                          {zona.satuan}
+                        </span>
+                      </div>
+                      <div className="text-right leading-none">
+                        <div className="flex items-baseline gap-0.5 justify-end">
+                          <span className="text-2xl font-black text-slate-700 tabular-nums">
+                            {pct.toFixed(0)}
+                          </span>
+                          <span className="text-sm font-bold text-slate-400">%</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-medium mt-0.5">kapasitas</p>
                       </div>
                     </div>
 
-                    <h3 className="font-bold text-slate-900 text-base">{zona.kodeZona} - {zona.namaZona}</h3>
-
-                    <div className="flex items-baseline gap-2 mt-3 mb-2">
-                      <span className="text-3xl font-extrabold text-slate-900">
-                        {reading ? currentLevel : 0}
-                      </span>
-                      <span className="text-xs text-slate-500 font-semibold">{zona.satuan}</span>
-                      <span className="text-xs text-slate-400 ml-auto font-mono">
-                        Maks: {zona.tinggiMaks} {zona.satuan}
-                      </span>
+                    {/* Progress Bar dengan gradient */}
+                    <div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${pct}%`,
+                            background:
+                              st === "KRITIS"
+                                ? "linear-gradient(90deg,#f97316,#ef4444)"
+                                : st === "BAHAYA"
+                                ? "linear-gradient(90deg,#f59e0b,#f97316)"
+                                : st === "WASPADA"
+                                ? "linear-gradient(90deg,#fbbf24,#f59e0b)"
+                                : "linear-gradient(90deg,#34d399,#10b981)",
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-between mt-1 text-[10px] text-slate-400 font-mono">
+                        <span>0</span>
+                        <span>{zona.tinggiMaks} {zona.satuan}</span>
+                      </div>
                     </div>
 
-                    {/* Tank Level Progress Bar */}
-                    <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden mb-3">
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          width: `${pct}%`,
-                          background:
-                            st === "KRITIS"
-                              ? "#ef4444"
-                              : st === "BAHAYA"
-                              ? "#f97316"
-                              : st === "WASPADA"
-                              ? "#f59e0b"
-                              : "#10b981",
-                        }}
+                    {/* Voltase */}
+                    <div className="text-[11px] text-slate-500">
+                      {reading ? (
+                        <>
+                          ⚡ Voltase:{" "}
+                          <span className="font-bold text-slate-700 font-mono">
+                            {Number(reading.voltaseRaw).toFixed(2)} V
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-slate-400 italic">Belum ada transmisi sensor</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── FOOTER: Koneksi + Waktu Update ────────── */}
+                  <div className="px-4 py-2.5 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between gap-2">
+                    {/* Badge koneksi (kompak: hanya status teks + dot) */}
+                    <span
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold border"
+                      style={{
+                        background: conn.badge.bg,
+                        color: conn.badge.text,
+                        borderColor: conn.badge.border,
+                      }}
+                      title={conn.label}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          conn.status === "ONLINE" ? "animate-pulse" : ""
+                        }`}
+                        style={{ background: conn.badge.dot }}
                       />
+                      {conn.status}
+                    </span>
+
+                    {/* Durasi elapsed + jam update */}
+                    <div className="text-right text-[10px] text-slate-400 font-mono leading-tight">
+                      {reading ? (
+                        <>
+                          <span className="block font-medium text-slate-500">
+                            {new Date(reading.waktuTerima).toLocaleTimeString("id-ID", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })}
+                          </span>
+                          <span className="block text-slate-400">
+                            {new Date(reading.waktuTerima).toLocaleDateString("id-ID", {
+                              day: "2-digit",
+                              month: "short",
+                            })}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>
-                      {reading ? `Voltase: ${reading.voltaseRaw} V` : "Belum ada transmisi"}
-                    </span>
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-400">
-                    <span>
-                      {reading ? `Update: ${new Date(reading.waktuRekam).toLocaleString("id-ID")}` : "Belum ada transmisi"}
-                    </span>
-                    <span className="font-semibold text-slate-600">{pct.toFixed(0)}% Kapasitas</span>
                   </div>
                 </div>
               );
@@ -378,12 +458,14 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => handleResolveAlert(al.id)}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg shrink-0 transition-colors"
-                >
-                  Tandai Selesai ✓
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => handleResolveAlert(al.id)}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg shrink-0 transition-colors cursor-pointer"
+                  >
+                    Tandai Selesai ✓
+                  </button>
+                )}
               </div>
             ))}
           </div>

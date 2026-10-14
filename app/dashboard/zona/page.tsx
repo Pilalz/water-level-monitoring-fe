@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { zonaApi, modulApi, Zona, Modul, ZonaStatus, WaterLevelStatus, getDeviceConnectionStatus } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 const waterStatusColors: Record<WaterLevelStatus, { bg: string; text: string; dot: string }> = {
   AMAN: { bg: "rgba(16,185,129,0.1)", text: "#059669", dot: "#10b981" },
@@ -13,6 +14,7 @@ const waterStatusColors: Record<WaterLevelStatus, { bg: string; text: string; do
 };
 
 function ZonaContent() {
+  const { canManage } = useAuth();
   const searchParams = useSearchParams();
   const initialModulFilter = searchParams.get("idModul") || "ALL";
 
@@ -31,6 +33,8 @@ function ZonaContent() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Zona | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Zona | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<Zona | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Form State
@@ -51,12 +55,12 @@ function ZonaContent() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const loadData = async () => {
+  const loadData = async (deleted = showDeleted) => {
     try {
       setLoading(true);
       setError(null);
       const [zonaRes, modulRes] = await Promise.all([
-        zonaApi.getAll(),
+        zonaApi.getAll({ includeDeleted: deleted }),
         modulApi.getAll(),
       ]);
 
@@ -72,8 +76,9 @@ function ZonaContent() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData(showDeleted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDeleted]);
 
   const openCreateModal = () => {
     setFormIdModul(moduls[0]?.id || "");
@@ -184,11 +189,26 @@ function ZonaContent() {
     try {
       setSubmitting(true);
       await zonaApi.delete(deleteTarget.id);
-      showToast(`Zona '${deleteTarget.namaZona}' berhasil dihapus`, "success");
+      showToast(`Zona '${deleteTarget.namaZona}' berhasil dihapus (soft delete)`, "success");
       setDeleteTarget(null);
       loadData();
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : "Gagal menghapus zona", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!restoreTarget) return;
+    try {
+      setSubmitting(true);
+      await zonaApi.restore(restoreTarget.id);
+      showToast(`Zona '${restoreTarget.namaZona}' berhasil dipulihkan`, "success");
+      setRestoreTarget(null);
+      loadData();
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Gagal memulihkan zona", "error");
     } finally {
       setSubmitting(false);
     }
@@ -201,11 +221,12 @@ function ZonaContent() {
         z.namaZona.toLowerCase().includes(search.toLowerCase()) ||
         (z.modul?.nama && z.modul.nama.toLowerCase().includes(search.toLowerCase())) ||
         z.kodeZona.toLowerCase().includes(search.toLowerCase());
+      const matchDeleted = showDeleted ? true : !z.deletedAt;
       const matchModul = modulFilter === "ALL" || z.idModul === modulFilter;
       const matchStatus = statusFilter === "ALL" || z.status === statusFilter;
-      return matchSearch && matchModul && matchStatus;
+      return matchSearch && matchModul && matchStatus && matchDeleted;
     });
-  }, [zonas, search, modulFilter, statusFilter]);
+  }, [zonas, search, modulFilter, statusFilter, showDeleted]);
 
   return (
     <div className="space-y-6">
@@ -239,17 +260,19 @@ function ZonaContent() {
           </p>
         </div>
 
-        <button
-          onClick={openCreateModal}
-          disabled={moduls.length === 0}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm text-white shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-          style={{ background: "linear-gradient(135deg, #06b6d4, #0284c7)" }}
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Tambah Zona Sensor
-        </button>
+        {canManage && (
+          <button
+            onClick={openCreateModal}
+            disabled={moduls.length === 0}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm text-white shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-50 cursor-pointer"
+            style={{ background: "linear-gradient(135deg, #06b6d4, #0284c7)" }}
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Tambah Zona Sensor
+          </button>
+        )}
       </div>
 
       {/* Filters Bar */}
@@ -300,7 +323,7 @@ function ZonaContent() {
           </select>
 
           <button
-            onClick={loadData}
+            onClick={() => loadData()}
             title="Refresh Data"
             className="p-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
           >
@@ -308,6 +331,21 @@ function ZonaContent() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </button>
+
+          {canManage && (
+            <button
+              onClick={() => setShowDeleted((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                showDeleted ? "bg-amber-100 text-amber-700 border border-amber-300" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+              title={showDeleted ? "Sembunyikan item terhapus" : "Tampilkan item terhapus"}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              {showDeleted ? "Sembunyikan Dihapus" : "Tampilkan Dihapus"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -360,10 +398,10 @@ function ZonaContent() {
                 ? "Tidak ada zona yang cocok dengan filter yang dipilih."
                 : "Belum ada zona sensor yang didaftarkan."}
             </p>
-            {moduls.length > 0 && !search && modulFilter === "ALL" && (
+            {canManage && moduls.length > 0 && !search && modulFilter === "ALL" && (
               <button
                 onClick={openCreateModal}
-                className="px-4 py-2 text-xs font-semibold text-white bg-cyan-600 rounded-xl hover:bg-cyan-700"
+                className="px-4 py-2 text-xs font-semibold text-white bg-cyan-600 rounded-xl hover:bg-cyan-700 cursor-pointer"
               >
                 + Buat Zona Pertama
               </button>
@@ -373,18 +411,30 @@ function ZonaContent() {
           <div className="divide-y divide-slate-100">
             {filteredZonas.map((zona) => {
               const reading = zona.latestReading;
+              console.log('ini reading', reading);
               const currentWaterLevel = reading ? Number(reading.ketinggianAir) : 0;
               const maxH = Number(zona.tinggiMaks) || 100;
               const pct = Math.min(100, Math.max(0, (currentWaterLevel / maxH) * 100));
               const wsColor = reading ? waterStatusColors[reading.statusTercatat] : null;
-              const conn = getDeviceConnectionStatus(reading?.waktuRekam);
+              const conn = getDeviceConnectionStatus(reading?.waktuTerima);
 
               return (
-                <div key={zona.id} className="p-6 hover:bg-slate-50/50 transition-colors">
+                <div
+                  key={zona.id}
+                  className="p-6 hover:bg-slate-50/50 transition-colors"
+                  style={zona.deletedAt ? { opacity: 0.6, background: "rgba(239,68,68,0.03)" } : {}}
+                >
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
                     <div>
                       <div className="flex items-center gap-2.5">
-                        <h3 className="font-bold text-base text-slate-900">({zona.kodeZona}) {zona.namaZona}</h3>
+                        <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                          <span>({zona.kodeZona}) {zona.namaZona}</span>
+                          {zona.deletedAt && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-600">
+                              Dihapus
+                            </span>
+                          )}
+                        </h3>
 
                         {/* Status Zona (ONLINE, DELAYED, OFFLINE) */}
                         <span
@@ -395,6 +445,7 @@ function ZonaContent() {
                               ? "bg-amber-50 text-amber-700 border border-amber-200"
                               : "bg-slate-100 text-slate-600 border border-slate-200"
                           }`}
+                          title={conn.label}
                         >
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
@@ -405,12 +456,7 @@ function ZonaContent() {
                                 : "bg-slate-400"
                             }`}
                           />
-                          {zona.status}
-                          {conn.diffSeconds !== null && (
-                            <span className="font-normal opacity-75 text-[11px]">
-                              ({conn.diffSeconds <= 120 ? `${conn.diffSeconds}s` : `${Math.floor(conn.diffSeconds / 60)}m`})
-                            </span>
-                          )}
+                          {conn.label}
                         </span>
 
                         {zona.unresolvedAlertsCount && zona.unresolvedAlertsCount > 0 ? (
@@ -446,26 +492,43 @@ function ZonaContent() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => openEditModal(zona)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(zona)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Hapus Zona"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
+                    {canManage && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        {zona.deletedAt ? (
+                          <button
+                            onClick={() => setRestoreTarget(zona)}
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer"
+                            title="Pulihkan Zona"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Pulihkan
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => openEditModal(zona)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(zona)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus Zona"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Visual Status & Threshold Bar */}
@@ -927,10 +990,10 @@ function ZonaContent() {
             </div>
             <h3 className="font-bold text-slate-900 text-lg">Konfirmasi Hapus Zona</h3>
             <p className="text-sm text-slate-600 mt-2">
-              Hapus zona sensor <strong className="text-slate-900">&quot;{deleteTarget.namaZona}&quot;</strong>?
+              Hapus zona sensor <strong className="text-slate-900">&quot;{deleteTarget.namaZona}&quot;</strong> (soft delete)?
             </p>
-            <p className="text-xs text-red-600 mt-2 bg-red-50 p-2.5 rounded-lg border border-red-200">
-              Riwayat data sensor dan alert yang terkait dengan zona ini akan dihapus secara permanen.
+            <p className="text-xs text-slate-500 mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+              Zona akan dinonaktifkan dan disembunyikan dari pemantauan aktif. Anda dapat memulihkannya kembali kapan saja melalui fitur &apos;Tampilkan Dihapus&apos;.
             </p>
 
             <div className="mt-6 flex items-center justify-end gap-2">
@@ -947,7 +1010,43 @@ function ZonaContent() {
                 disabled={submitting}
                 className="px-5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm disabled:opacity-50"
               >
-                {submitting ? "Menghapus..." : "Ya, Hapus Zona"}
+                {submitting ? "Menghapus..." : "Ya, Hapus (Soft Delete)"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESTORE MODAL */}
+      {restoreTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6">
+            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xl mb-4">
+              🔄
+            </div>
+            <h3 className="font-bold text-slate-900 text-lg">Konfirmasi Pulihkan Zona</h3>
+            <p className="text-sm text-slate-600 mt-2">
+              Pulihkan kembali zona sensor <strong className="text-slate-900">&quot;{restoreTarget.namaZona}&quot;</strong>?
+            </p>
+            <p className="text-xs text-slate-500 mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+              Zona akan kembali aktif dan muncul dalam daftar pemantauan operasional.
+            </p>
+
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRestoreTarget(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleRestore}
+                disabled={submitting}
+                className="px-5 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-sm disabled:opacity-50"
+              >
+                {submitting ? "Memulihkan..." : "Ya, Pulihkan Zona"}
               </button>
             </div>
           </div>

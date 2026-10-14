@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -12,22 +13,25 @@ const navItems = [
   {
     group: "Monitoring",
     items: [
-      { label: "Dashboard", href: "/dashboard", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
-      { label: "Laporan Data", href: "/dashboard/report", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
-      { label: "Alert Logs", href: "/dashboard/alerts", icon: "M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" },
+      { label: "Dashboard", href: "/dashboard", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6", adminOnly: false },
+      { label: "Laporan Data", href: "/dashboard/report", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", adminOnly: false },
+      { label: "Alert Logs", href: "/dashboard/alerts", icon: "M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9", adminOnly: false },
+      { label: "Activity Log", href: "/dashboard/activity-log", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01", adminOnly: true },
     ],
   },
   {
     group: "Manajemen Data",
     items: [
-      { label: "Modul", href: "/dashboard/modul", icon: "M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" },
-      { label: "Zona Sensor", href: "/dashboard/zona", icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
+      { label: "Modul", href: "/dashboard/modul", icon: "M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18", adminOnly: false },
+      { label: "Zona Sensor", href: "/dashboard/zona", icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10", adminOnly: false },
+      { label: "Users", href: "/dashboard/user", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z", adminOnly: true },
     ],
   },
 ];
 
 export default function Sidebar({ isOpen, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const { role, username, logout } = useAuth();
 
   return (
     <aside
@@ -90,8 +94,10 @@ export default function Sidebar({ isOpen, onToggle }: SidebarProps) {
                 {group.group}
               </p>
             )}
-            {group.items.map((item) => {
-              const isActive = pathname === item.href;
+            {group.items
+              .filter((item) => !item.adminOnly || role === "ADMIN")
+              .map((item) => {
+                const isActive = pathname === item.href;
               return (
                 <Link
                   key={item.href}
@@ -140,23 +146,26 @@ export default function Sidebar({ isOpen, onToggle }: SidebarProps) {
       >
         <div className="flex items-center gap-3 px-2 py-2 rounded-xl" style={{ background: "#f8fafc" }}>
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold"
+            className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold uppercase"
             style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white" }}
           >
-            A
+            {username ? username.charAt(0) : (role ? role.charAt(0) : "U")}
           </div>
           {isOpen && (
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate" style={{ color: "#1e293b" }}>Admin User</p>
-              <p className="text-xs truncate" style={{ color: "#94a3b8" }}>admin@ssd.dev</p>
+              <p className="text-sm font-medium truncate" style={{ color: "#1e293b" }}>
+                {username || "User"}
+              </p>
+              <p className="text-xs font-semibold truncate" style={{ color: "#6366f1" }}>
+                {role || "VIEWER"}
+              </p>
             </div>
           )}
           {isOpen && (
             <button
-              className="p-1 rounded-lg transition-colors"
-              style={{ color: "#94a3b8" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#e2e8f0")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              onClick={logout}
+              title="Keluar (Logout)"
+              className="p-1.5 rounded-lg transition-colors text-slate-400 hover:text-red-500 hover:bg-red-50"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

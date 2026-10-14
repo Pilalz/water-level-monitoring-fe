@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { alertApi, AlertLog, AlertSummary } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 const levelBadges: Record<string, { bg: string; text: string; border: string; icon: string }> = {
   WASPADA: { bg: "#fef3c7", text: "#92400e", border: "#fde68a", icon: "🟡" },
@@ -10,6 +11,7 @@ const levelBadges: Record<string, { bg: string; text: string; border: string; ic
 };
 
 export default function AlertsPage() {
+  const { canManage } = useAuth();
   const [alerts, setAlerts] = useState<AlertLog[]>([]);
   const [summary, setSummary] = useState<AlertSummary>({
     WASPADA: 0,
@@ -266,14 +268,18 @@ export default function AlertsPage() {
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
                         <span>✓</span> Ditangani
                       </span>
-                    ) : (
+                    ) : canManage ? (
                       <button
                         onClick={() => handleResolve(alert.id)}
                         disabled={resolvingId === alert.id}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
                       >
                         {resolvingId === alert.id ? "Memproses..." : "Tandai Selesai ✓"}
                       </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
+                        <span>⏳</span> Menunggu Penanganan
+                      </span>
                     )}
                   </div>
                 </div>
